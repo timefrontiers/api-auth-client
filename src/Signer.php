@@ -5,90 +5,61 @@ declare(strict_types=1);
 namespace TimeFrontiers\Auth\Client;
 
 /**
- * Stateless signature generator.
+ * Stateless request signer.
  *
- * The signing algorithm is intentionally simple and well-documented
- * so it can be implemented in any programming language.
+ * This class handles all cryptographic operations for API authentication.
+ * The signing algorithm is designed to be language-agnostic and can be
+ * implemented in any language that supports HMAC-SHA256.
  *
- * == SIGNING ALGORITHM ==
+ * Canonical String Format (newline-separated):
+ *   {app_id}
+ *   {HTTP_METHOD}
+ *   {path}
+ *   {timestamp}
+ *   {nonce}
+ *   {body_hash}
  *
- * 1. Build the canonical string by joining these values with newlines (\n):
- *    - App ID
- *    - HTTP method (uppercase: GET, POST, PUT, DELETE, PATCH)
- *    - Request path (e.g., /api/v1/users) — no query string
- *    - Unix timestamp (seconds since epoch)
- *    - Nonce (random string, min 16 chars)
- *    - Body hash (SHA-256 of request body, or empty string if no body)
- *
- * 2. Compute HMAC-SHA256 of the canonical string using the secret key
- *
- * 3. Hex-encode the result
- *
- * == REQUIRED HEADERS ==
- *
- * X-App-Id: {app_id}
- * X-Timestamp: {unix_timestamp}
- * X-Nonce: {random_nonce}
- * X-Body-Hash: {sha256_of_body}  (omit or empty if no body)
- * X-Signature: {computed_signature}
+ * Signature = HMAC-SHA256(secret_key, canonical_string) → hex-encoded
  */
-final class Signer
-{
-  public const ALGORITHM = 'sha256';
+final class Signer {
+
+  // Header names
   public const HEADER_APP_ID = 'X-App-Id';
   public const HEADER_TIMESTAMP = 'X-Timestamp';
   public const HEADER_NONCE = 'X-Nonce';
   public const HEADER_BODY_HASH = 'X-Body-Hash';
   public const HEADER_SIGNATURE = 'X-Signature';
 
-  /**
-   * Generate a signature for a request.
-   */
-  public static function sign(
-    Credentials $credentials,
-    string $method,
-    string $path,
-    int $timestamp,
-    string $nonce,
-    string $bodyHash = ''
-  ): string {
-    $canonical = self::buildCanonicalString(
-      $credentials->getAppId(),
-      $method,
-      $path,
-      $timestamp,
-      $nonce,
-      $bodyHash
-    );
-
-    return \hash_hmac(self::ALGORITHM, $canonical, $credentials->getSecretKey());
-  }
+  // Defaults
+  public const DEFAULT_NONCE_LENGTH = 32;
 
   /**
-   * Generate all required headers for a request.
+   * Generate all authentication headers for a request.
    *
-   * This is a convenience method that generates the nonce and timestamp
-   * automatically. Returns an associative array of headers.
+   * @param Credentials $credentials API credentials
+   * @param string $method HTTP method (GET, POST, etc.)
+   * @param string $path Request path (e.g., /api/v1/users)
+   * @param string $body Request body (empty string for GET)
+   * @return array Associative array of headers
    */
   public static function generateHeaders(
     Credentials $credentials,
     string $method,
     string $path,
-    string $body = '',
-    ?int $timestamp = null,
-    ?string $nonce = null
-  ): array {
-    $timestamp = $timestamp ?? \time();
-    $nonce = $nonce ?? self::generateNonce();
-    $bodyHash = !empty($body) ? self::hashBody($body) : '';
+    string $body = ''
+  ):array {
+    $timestamp = \time();
+    $nonce = self::generateNonce();
+    $body_hash = !empty($body) ? self::hashBody($body) : '';
 
     $signature = self::sign(
-      $credentials,
-      \strtoupper($method),
+      $credentials->getSecretKey(),
+      $credentials->getAppId(),
+      $method,
       $path,
       $timestamp,
       $nonce,
-      $bodyHash
+      $body_hash
     );
 
     $headers = [
@@ -98,8 +69,8 @@ final class Signer
       self::HEADER_SIGNATURE => $signature,
     ];
 
-    if (!empty($bodyHash)) {
-      $headers[self::HEADER_BODY_HASH] = $bodyHash;
+    if (!empty($body_hash)) {
+      $headers[self::HEADER_BODY_HASH] = $body_hash;
     }
 
     return $headers;
@@ -107,83 +78,112 @@ final class Signer
 
   /**
    * Generate headers formatted for cURL.
+   *
+   * @return array Indexed array of "Header: Value" strings
    */
   public static function generateCurlHeaders(
     Credentials $credentials,
     string $method,
     string $path,
     string $body = ''
-  ): array {
+  ):array {
     $headers = self::generateHeaders($credentials, $method, $path, $body);
 
-    return \array_map(
-      fn($key, $value) => "{$key}: {$value}",
-      \array_keys($headers),
-      \array_values($headers)
-    );
+    $curl_headers = [];
+    foreach ($headers as $name => $value) {
+      $curl_headers[] = "{$name}: {$value}";
+    }
+
+    return $curl_headers;
   }
 
   /**
    * Build the canonical string for signing.
    *
-   * Public so other implementations can verify they're building it correctly.
+   * This is the string that gets signed with HMAC-SHA256.
+   * The format is designed to be unambiguous and order-dependent.
    */
   public static function buildCanonicalString(
-    string $appId,
+    string $app_id,
     string $method,
     string $path,
     int $timestamp,
     string $nonce,
-    string $bodyHash
-  ): string {
+    string $body_hash = ''
+  ):string {
     return \implode("\n", [
-      $appId,
+      $app_id,
       \strtoupper($method),
-      self::normalizePath($path),
+      $path,
       (string) $timestamp,
       $nonce,
-      $bodyHash,
+      $body_hash,
     ]);
   }
 
   /**
-   * Hash the request body.
+   * Sign a canonical string with the secret key.
+   *
+   * @return string Hex-encoded HMAC-SHA256 signature
    */
-  public static function hashBody(string $body): string
-  {
-    return \hash('sha256', $body);
+  public static function sign(
+    string $secret_key,
+    string $app_id,
+    string $method,
+    string $path,
+    int $timestamp,
+    string $nonce,
+    string $body_hash = ''
+  ):string {
+    $canonical = self::buildCanonicalString(
+      $app_id,
+      $method,
+      $path,
+      $timestamp,
+      $nonce,
+      $body_hash
+    );
+
+    return \hash_hmac('sha256', $canonical, $secret_key);
   }
 
   /**
    * Generate a cryptographically secure nonce.
    */
-  public static function generateNonce(int $length = 32): string
-  {
+  public static function generateNonce(int $length = self::DEFAULT_NONCE_LENGTH):string {
     return \bin2hex(\random_bytes((int) \ceil($length / 2)));
   }
 
   /**
-   * Normalize the path for consistent signing.
-   *
-   * - Removes query string
-   * - Ensures leading slash
-   * - Removes trailing slash (except for root)
+   * Hash the request body.
    */
-  public static function normalizePath(string $path): string
-  {
-    // Remove query string
-    $path = \parse_url($path, PHP_URL_PATH) ?? $path;
+  public static function hashBody(string $body):string {
+    return \hash('sha256', $body);
+  }
 
-    // Ensure leading slash
-    if ($path === '' || $path[0] !== '/') {
-      $path = '/' . $path;
-    }
+  /**
+   * Verify a signature (for testing/debugging).
+   */
+  public static function verifySignature(
+    string $signature,
+    string $secret_key,
+    string $app_id,
+    string $method,
+    string $path,
+    int $timestamp,
+    string $nonce,
+    string $body_hash = ''
+  ):bool {
+    $expected = self::sign(
+      $secret_key,
+      $app_id,
+      $method,
+      $path,
+      $timestamp,
+      $nonce,
+      $body_hash
+    );
 
-    // Remove trailing slash (except for root)
-    if ($path !== '/' && \str_ends_with($path, '/')) {
-      $path = \rtrim($path, '/');
-    }
-
-    return $path;
+    return \hash_equals($expected, $signature);
   }
 }
