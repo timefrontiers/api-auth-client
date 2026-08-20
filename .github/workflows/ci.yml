@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dependencies: [highest, lowest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: curl, json
+          coverage: none
+
+      - name: Validate Composer metadata
+        run: composer validate --strict --no-check-publish
+
+      - name: Install current dependencies
+        if: matrix.dependencies == 'highest'
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install lowest dependencies
+        if: matrix.dependencies == 'lowest'
+        run: composer update --no-interaction --prefer-dist --prefer-lowest
+
+      - name: Run quality gates
+        run: composer check
+
+      - name: Audit dependencies
+        if: matrix.dependencies == 'highest'
+        run: composer audit --locked

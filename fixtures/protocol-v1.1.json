@@ -1,0 +1,70 @@
+{
+  "notice": "Public deterministic test material only. These values are not credentials and must never be used outside protocol tests.",
+  "app_id": "test-app-001",
+  "public_key": "test-key-selector-001",
+  "hmac_test_key": "test-only-hmac-key-v1.1",
+  "timestamp": 1700000000,
+  "nonce": "00112233445566778899aabbccddeeff",
+  "cases": [
+    {
+      "name": "empty-body",
+      "method": "GET",
+      "request_target": "/v1/ping",
+      "body": "",
+      "body_hash": "",
+      "canonical": "test-app-001\nGET\n/v1/ping\n1700000000\n00112233445566778899aabbccddeeff\n",
+      "signature": "34a2740086b11a148eeda5edf5d670dc5b75387aa871a0c1b30e118f51e1d68c",
+      "valid": true
+    },
+    {
+      "name": "zero-body",
+      "method": "POST",
+      "request_target": "/v1/values",
+      "body": "0",
+      "body_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "canonical": "test-app-001\nPOST\n/v1/values\n1700000000\n00112233445566778899aabbccddeeff\n5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "signature": "3297317699dd846ac538fb8beed7cc19b5b55a311874799df7740aa93e7753a2",
+      "valid": true
+    },
+    {
+      "name": "utf8-json",
+      "method": "POST",
+      "request_target": "/v1/messages",
+      "body": "{\"message\":\"Olá 世界\"}",
+      "body_hash": "0e1817319feeab681cd7181fd6c79c7acf5483c4b1a5501a4cf72062647ef4e7",
+      "canonical": "test-app-001\nPOST\n/v1/messages\n1700000000\n00112233445566778899aabbccddeeff\n0e1817319feeab681cd7181fd6c79c7acf5483c4b1a5501a4cf72062647ef4e7",
+      "signature": "459c6e883a3eb51c8b0a7a17106991a846a13f37e78b0886ef919942d3eccc17",
+      "valid": true
+    },
+    {
+      "name": "query-space-rfc3986",
+      "method": "GET",
+      "request_target": "/v1/search?q=hello%20world",
+      "body": "",
+      "body_hash": "",
+      "canonical": "test-app-001\nGET\n/v1/search?q=hello%20world\n1700000000\n00112233445566778899aabbccddeeff\n",
+      "signature": "a7c12f31ab2ef1d796c3c65f7f981a3cc3cbf6029c69e85303c4deca65bc880d",
+      "valid": true
+    },
+    {
+      "name": "nested-and-repeated-query",
+      "method": "GET",
+      "request_target": "/v1/search?filter%5Btags%5D%5B0%5D=red&filter%5Btags%5D%5B1%5D=blue&sort%5Bby%5D=name&sort%5Bdirection%5D=asc",
+      "body": "",
+      "body_hash": "",
+      "canonical": "test-app-001\nGET\n/v1/search?filter%5Btags%5D%5B0%5D=red&filter%5Btags%5D%5B1%5D=blue&sort%5Bby%5D=name&sort%5Bdirection%5D=asc\n1700000000\n00112233445566778899aabbccddeeff\n",
+      "signature": "6febd997a26c4e22c0fc5d060846d5c1c2c42e8eabe542b24c4c43634c29c208",
+      "valid": true
+    },
+    {
+      "name": "intentionally-invalid-signature",
+      "method": "GET",
+      "request_target": "/v1/ping",
+      "body": "",
+      "body_hash": "",
+      "canonical": "test-app-001\nGET\n/v1/ping\n1700000000\n00112233445566778899aabbccddeeff\n",
+      "signature": "0000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    }
+  ]
+}
