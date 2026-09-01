@@ -19,7 +19,7 @@ composer require timefrontiers/api-auth-client:^1.1
    disabled. For local loopback development only, opt in with
    `allow_http_for_local_development: true`.
 2. Remove any authentication headers from default or request header arrays.
-   The client owns `X-App-Id`, `X-Public-Key`, `X-Timestamp`, `X-Nonce`,
+   The client owns `X-App-Id`, `X-App-Selector`, `X-Public-Key`, `X-Timestamp`, `X-Nonce`,
    `X-Body-Hash`, and `X-Signature`.
 3. Ensure paths are origin-form targets beginning with `/`. Do not pass an
    absolute URL, `//host` target, fragment, raw space, or control character.
@@ -62,6 +62,19 @@ escapes therefore remain exactly as signed on the physical request line.
 1.1 sends `X-Public-Key` from `Credentials`. The paired server uses it as an
 optional selector/app cross-check. It is not added to the canonical string and
 must remain optional for 1.0 clients during the migration window.
+
+## Public application selector
+
+API Auth Client 1.1.1 makes the credential type explicit. Create new
+credentials with `Credentials::forSelector()`; it always sends
+`X-App-Selector`, including for a numeric public selector such as `1234`.
+Use `Credentials::forLegacyAppId()` only for an existing numeric database ID
+that must be sent as `X-App-Id`. The `credential_selector` array key and
+`*_CREDENTIAL_SELECTOR` environment variable select the public protocol;
+`app_id` and `*_APP_ID` select the legacy protocol. The value's shape never
+selects the header. Public selectors use the server's lowercase
+`[a-z0-9][a-z0-9._-]{0,127}` grammar. In both protocols, the transmitted value
+remains the first canonical HMAC line.
 
 ## Response changes
 

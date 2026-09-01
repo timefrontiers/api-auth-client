@@ -31,7 +31,7 @@ final class CurlTransportTest extends TestCase {
 
     try {
       $client = new ApiClient(
-        new Credentials('app-1', 'selector-1', 'test-only-secret'),
+        Credentials::forSelector('app-1', 'selector-1', 'test-only-secret'),
         "http://127.0.0.1:{$server->getPort()}",
         timeout: 2,
         connect_timeout: 1,
@@ -46,6 +46,8 @@ final class CurlTransportTest extends TestCase {
       self::assertSame("POST {$target} HTTP/1.1", $record['request_line']);
       self::assertSame($target, $record['request_target']);
       self::assertSame('0', $record['body']);
+      self::assertContains('x-app-selector', $record['header_names']);
+      self::assertNotContains('x-app-id', $record['header_names']);
       self::assertSame(201, $response->getStatusCode());
       self::assertSame(['a=1', 'b=2'], $response->getHeaderValues('set-cookie'));
       self::assertSame('yes', $response->getHeader('x-final'));
@@ -61,7 +63,7 @@ final class CurlTransportTest extends TestCase {
     $server->stop();
 
     $client = new ApiClient(
-      new Credentials('app-1', 'selector-1', 'test-only-secret'),
+      Credentials::forSelector('app-1', 'selector-1', 'test-only-secret'),
       "http://127.0.0.1:{$port}",
       timeout: 0.5,
       connect_timeout: 0.25,

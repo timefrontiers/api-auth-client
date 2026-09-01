@@ -18,6 +18,7 @@ class ApiClient {
 
   private const RESERVED_AUTH_HEADERS = [
     'x-app-id',
+    'x-app-selector',
     'x-public-key',
     'x-timestamp',
     'x-nonce',

@@ -2,7 +2,25 @@
 
 All notable changes to this package are documented here.
 
-## 1.1.0 - Unreleased
+## 1.1.1 - 2026-09-01
+
+### Security
+
+- Send explicit public application selectors in `X-App-Selector`, including
+  numeric names, keeping database IDs out of newly provisioned credentials.
+- Reserve both selector headers and ensure the selected wire value remains the
+  first canonical HMAC line.
+
+### Compatibility
+
+- Add `Credentials::forSelector()` and `Credentials::forLegacyAppId()` so the
+  chosen protocol is explicit rather than inferred from a numeric value.
+- Validate public selectors against the same lowercase grammar enforced by the
+  paired server.
+- The legacy constructor, `app_id` array key, and `*_APP_ID` environment input
+  continue to use `X-App-Id` during the documented migration window.
+
+## 1.1.0 - 2026-08-20
 
 ### Required action
 

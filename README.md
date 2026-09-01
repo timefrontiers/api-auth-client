@@ -8,7 +8,7 @@ Client-side HMAC request authentication for TimeFrontiers APIs.
 ## Installation
 
 ```bash
-composer require timefrontiers/api-auth-client:^1.1
+composer require timefrontiers/api-auth-client:^1.1.1
 ```
 
 Requirements: PHP 8.5+, ext-curl, and ext-json.
@@ -18,8 +18,8 @@ Requirements: PHP 8.5+, ext-curl, and ext-json.
 ```php
 use TimeFrontiers\Auth\Client\{ApiClient, Credentials};
 
-$credentials = new Credentials(
-  app_id: '123',
+$credentials = Credentials::forSelector(
+  credential_selector: 'analytics.app',
   public_key: 'key-selector-2026-01',
   secret_key: $secretFromASecretManager
 );
@@ -30,14 +30,25 @@ $response = $client->get('/users', ['status' => 'active', 'limit' => 10]);
 $response = $client->post('/users', ['name' => 'John', 'email' => 'john@example.com']);
 ```
 
-`public_key` is a key selector used by a 1.1 server to cross-check the app and
-credential record. It is not an asymmetric public key, is not a second secret,
-and is not included in the six canonical lines.
+`forSelector()` always sends the stable public credential selector as
+`X-App-Selector`, including a numeric selector such as `1234`. Use
+`forLegacyAppId()` only for an existing numeric database ID that must be sent
+as `X-App-Id` during migration. Public selectors must match
+`[a-z0-9][a-z0-9._-]{0,127}` so the client and server reject the same invalid
+values. The legacy constructor treats its `app_id`
+argument as that explicit legacy path. Credential type is never inferred from
+the value. `public_key` is a key selector used by a 1.1 server to cross-check
+the app and credential record. It is not an asymmetric public key, is not a
+second secret, and is not included in the six canonical lines.
 
 Credentials can also be loaded with `Credentials::fromArray()` or
-`Credentials::fromEnv('API')`. The latter reads `API_APP_ID`,
-`API_PUBLIC_KEY`, and `API_SECRET_KEY`. Credential objects redact the HMAC
-secret from debug output and cannot be serialized.
+`Credentials::fromEnv('API')`. Prefer the `credential_selector` array key or
+`API_CREDENTIAL_SELECTOR`; those inputs always select `X-App-Selector`. The
+legacy `app_id` and `API_APP_ID` inputs explicitly select `X-App-Id` and must
+contain a canonical positive integer. `API_PUBLIC_KEY` and `API_SECRET_KEY`
+provide the remaining values.
+Credential objects redact the HMAC secret from debug output and cannot be
+serialized.
 
 ## Client configuration
 
@@ -71,6 +82,7 @@ but passing `false` now throws. Remove any insecure override before upgrading.
 
 Use `withBaseUrl()` and `withHeaders()` to create configured copies. Defaults
 and per-request headers are compared case-insensitively. `X-App-Id`,
+`X-App-Selector`,
 `X-Public-Key`, `X-Timestamp`, `X-Nonce`, `X-Body-Hash`, and `X-Signature` are
 reserved and cannot be supplied by callers.
 
@@ -166,7 +178,7 @@ function signRequest(credentials, method, requestTarget, body = '') {
     : '';
 
   const canonical = [
-    credentials.appId,
+    credentials.credentialSelector,
     method.toUpperCase(),
     requestTarget,
     String(timestamp),
@@ -175,7 +187,7 @@ function signRequest(credentials, method, requestTarget, body = '') {
   ].join('\n');
 
   return {
-    'X-App-Id': credentials.appId,
+    'X-App-Selector': credentials.credentialSelector,
     'X-Public-Key': credentials.publicKey,
     'X-Timestamp': String(timestamp),
     'X-Nonce': nonce,
@@ -201,12 +213,12 @@ def sign_request(credentials, method, request_target, body=''):
     nonce = secrets.token_hex(16)
     body_hash = hashlib.sha256(body.encode('utf-8')).hexdigest() if body != '' else ''
     canonical = '\n'.join([
-        credentials['app_id'], method.upper(), request_target,
+        credentials['credential_selector'], method.upper(), request_target,
         str(timestamp), nonce, body_hash
     ])
 
     headers = {
-        'X-App-Id': credentials['app_id'],
+        'X-App-Selector': credentials['credential_selector'],
         'X-Public-Key': credentials['public_key'],
         'X-Timestamp': str(timestamp),
         'X-Nonce': nonce,
@@ -224,7 +236,7 @@ def sign_request(credentials, method, request_target, body=''):
 ### Bash/cURL signing
 
 ```bash
-APP_ID='123'
+CREDENTIAL_SELECTOR='1234'
 PUBLIC_KEY='key-selector-2026-01'
 SECRET_KEY='read-this-from-a-secret-manager'
 METHOD='POST'
@@ -241,7 +253,7 @@ else
   BODY_HASH_HEADER=()
 fi
 
-CANONICAL="${APP_ID}
+CANONICAL="${CREDENTIAL_SELECTOR}
 ${METHOD}
 ${REQUEST_TARGET}
 ${TIMESTAMP}
@@ -250,7 +262,7 @@ ${BODY_HASH}"
 SIGNATURE="$(printf '%s' "$CANONICAL" | openssl dgst -sha256 -hmac "$SECRET_KEY" | awk '{print $2}')"
 
 curl --proto '=https' --max-redirs 0 -X "$METHOD" "https://api.example.com${REQUEST_TARGET}" \
-  -H "X-App-Id: ${APP_ID}" \
+  -H "X-App-Selector: ${CREDENTIAL_SELECTOR}" \
   -H "X-Public-Key: ${PUBLIC_KEY}" \
   -H "X-Timestamp: ${TIMESTAMP}" \
   -H "X-Nonce: ${NONCE}" \
@@ -258,6 +270,11 @@ curl --proto '=https' --max-redirs 0 -X "$METHOD" "https://api.example.com${REQU
   -H "X-Signature: ${SIGNATURE}" \
   --data-binary "$BODY"
 ```
+
+These examples use the public-selector protocol. A migration client that truly
+holds an existing database ID must deliberately substitute `X-App-Id` and sign
+that ID as the first canonical line; do not choose the header from whether the
+value looks numeric.
 
 ## Injectable transport
 

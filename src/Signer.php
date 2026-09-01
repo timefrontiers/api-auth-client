@@ -14,6 +14,7 @@ namespace TimeFrontiers\Auth\Client;
 final class Signer {
 
   public const HEADER_APP_ID = 'X-App-Id';
+  public const HEADER_APP_SELECTOR = 'X-App-Selector';
   public const HEADER_PUBLIC_KEY = 'X-Public-Key';
   public const HEADER_TIMESTAMP = 'X-Timestamp';
   public const HEADER_NONCE = 'X-Nonce';
@@ -43,9 +44,10 @@ final class Signer {
     $nonce ??= self::generateNonce();
     $body_hash = $body !== '' ? self::hashBody($body) : '';
 
+    $credential_selector = $credentials->getCredentialSelector();
     $signature = self::sign(
       $credentials->getSecretKey(),
-      $credentials->getAppId(),
+      $credential_selector,
       $method,
       $path,
       $timestamp,
@@ -53,8 +55,11 @@ final class Signer {
       $body_hash
     );
 
+    $selector_header = $credentials->usesLegacyAppId()
+      ? self::HEADER_APP_ID
+      : self::HEADER_APP_SELECTOR;
     $headers = [
-      self::HEADER_APP_ID => $credentials->getAppId(),
+      $selector_header => $credential_selector,
       self::HEADER_PUBLIC_KEY => $credentials->getPublicKey(),
       self::HEADER_TIMESTAMP => (string) $timestamp,
       self::HEADER_NONCE => $nonce,

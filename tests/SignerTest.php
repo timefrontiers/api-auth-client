@@ -12,7 +12,7 @@ final class SignerTest extends TestCase {
   private Credentials $_credentials;
 
   protected function setUp():void {
-    $this->_credentials = new Credentials('app-1', 'selector-1', 'test-secret');
+    $this->_credentials = Credentials::forSelector('app-1', 'selector-1', 'test-secret');
   }
 
   public function testEmptyBodyAndZeroBodyHaveDifferentIntegritySemantics():void {

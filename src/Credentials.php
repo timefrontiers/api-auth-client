@@ -17,7 +17,14 @@ final class Credentials {
   private string $_app_id;
   private string $_public_key;
   private string $_secret_key;
+  private bool $_uses_legacy_app_id = true;
 
+  /**
+   * Legacy constructor retained for v1.0 compatibility.
+   *
+   * The app_id argument is always transmitted as X-App-Id. New integrations
+   * should use forSelector() so numeric public selectors remain public names.
+   */
   public function __construct(
     string $app_id,
     string $public_key,
@@ -36,21 +43,58 @@ final class Credentials {
     $this->_secret_key = $secret_key;
   }
 
+  public static function forSelector(
+    string $credential_selector,
+    string $public_key,
+    #[\SensitiveParameter]
+    string $secret_key
+  ):self {
+    self::_assertCredentialSelector($credential_selector);
+    $credentials = new self($credential_selector, $public_key, $secret_key);
+    $credentials->_uses_legacy_app_id = false;
+    return $credentials;
+  }
+
+  public static function forLegacyAppId(
+    string $app_id,
+    string $public_key,
+    #[\SensitiveParameter]
+    string $secret_key
+  ):self {
+    self::_assertLegacyAppId($app_id);
+    return new self($app_id, $public_key, $secret_key);
+  }
+
   /**
    * Create credentials from snake_case or camelCase keys.
    *
    * @param array<string, mixed> $data
    */
   public static function fromArray(#[\SensitiveParameter] array $data):self {
-    return new self(
-      self::_toString($data['app_id'] ?? $data['appId'] ?? '', 'Application ID'),
-      self::_toString($data['public_key'] ?? $data['publicKey'] ?? '', 'Public key selector'),
-      self::_toString($data['secret_key'] ?? $data['secretKey'] ?? '', 'Secret key')
+    $public_key = self::_toString($data['public_key'] ?? $data['publicKey'] ?? '', 'Public key selector');
+    $secret_key = self::_toString($data['secret_key'] ?? $data['secretKey'] ?? '', 'Secret key');
+
+    if (\array_key_exists('credential_selector', $data) || \array_key_exists('credentialSelector', $data)) {
+      return self::forSelector(
+        self::_toString(
+          $data['credential_selector'] ?? $data['credentialSelector'] ?? null,
+          'Application credential selector'
+        ),
+        $public_key,
+        $secret_key
+      );
+    }
+
+    return self::forLegacyAppId(
+      self::_toString($data['app_id'] ?? $data['appId'] ?? '', 'Legacy application ID'),
+      $public_key,
+      $secret_key
     );
   }
 
   /**
-   * Create credentials from {PREFIX}_APP_ID, _PUBLIC_KEY, and _SECRET_KEY.
+   * Create credentials from {PREFIX}_CREDENTIAL_SELECTOR (or legacy _APP_ID),
+   * _PUBLIC_KEY, and _SECRET_KEY.
    */
   public static function fromEnv(string $prefix = 'API'):self {
     $prefix = \rtrim($prefix, '_');
@@ -58,15 +102,38 @@ final class Credentials {
       throw new \InvalidArgumentException('Environment prefix must be a valid identifier.');
     }
 
-    $app_id = self::_environmentValue("{$prefix}_APP_ID");
+    $credential_selector = self::_environmentValueOrNull("{$prefix}_CREDENTIAL_SELECTOR");
     $public_key = self::_environmentValue("{$prefix}_PUBLIC_KEY");
     $secret_key = self::_environmentValue("{$prefix}_SECRET_KEY");
 
-    return new self($app_id, $public_key, $secret_key);
+    if ($credential_selector !== null) {
+      return self::forSelector($credential_selector, $public_key, $secret_key);
+    }
+
+    return self::forLegacyAppId(
+      self::_environmentValue("{$prefix}_APP_ID"),
+      $public_key,
+      $secret_key
+    );
   }
 
   public function getAppId():string {
     return $this->_app_id;
+  }
+
+  /** Stable public credential selector used by the current protocol. */
+  public function getCredentialSelector():string {
+    return $this->_app_id;
+  }
+
+  /** X-App-Id is retained only for explicitly selected migration compatibility. */
+  public function usesLegacyAppId():bool {
+    return $this->_uses_legacy_app_id;
+  }
+
+  /** @deprecated Use usesLegacyAppId(). */
+  public function usesLegacyNumericAppId():bool {
+    return $this->usesLegacyAppId();
   }
 
   public function getPublicKey():string {
@@ -81,10 +148,11 @@ final class Credentials {
   }
 
   /**
-   * @return array{app_id: string, public_key: string, secret_key: string}
+   * @return array{credential_type: string, app_id: string, public_key: string, secret_key: string}
    */
   public function __debugInfo():array {
     return [
+      'credential_type' => $this->_uses_legacy_app_id ? 'legacy_app_id' : 'public_selector',
       'app_id' => $this->_app_id,
       'public_key' => $this->_public_key,
       'secret_key' => '[REDACTED]',
@@ -116,17 +184,33 @@ final class Credentials {
     }
   }
 
+  private static function _assertLegacyAppId(string $app_id):void {
+    if (
+      !\preg_match('/\A[1-9][0-9]{0,18}\z/D', $app_id)
+      || (int) $app_id <= 0
+      || (string) (int) $app_id !== $app_id
+    ) {
+      throw new \InvalidArgumentException('Legacy application ID must be a canonical positive integer.');
+    }
+  }
+
+  private static function _assertCredentialSelector(string $credential_selector):void {
+    if (!\preg_match('/\A[a-z0-9][a-z0-9._-]{0,127}\z/D', $credential_selector)) {
+      throw new \InvalidArgumentException('Application credential selector is invalid.');
+    }
+  }
+
   private static function _environmentValue(string $name):string {
+    return self::_environmentValueOrNull($name) ?? '';
+  }
+
+  private static function _environmentValueOrNull(string $name):?string {
     $value = \getenv($name);
     if ($value !== false) {
       return $value;
     }
 
-    if (!\defined($name)) {
-      return '';
-    }
-
-    return self::_toString(\constant($name), $name);
+    return \defined($name) ? self::_toString(\constant($name), $name) : null;
   }
 
   private static function _toString(mixed $value, string $label):string {

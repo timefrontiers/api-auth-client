@@ -18,7 +18,7 @@ final class ApiClientTest extends TestCase {
   private Credentials $_credentials;
 
   protected function setUp():void {
-    $this->_credentials = new Credentials('app-1', 'selector-1', 'test-secret');
+    $this->_credentials = Credentials::forSelector('app-1', 'selector-1', 'test-secret');
   }
 
   public function testFinalTargetIsSignedExactlyAsTransmitted():void {
@@ -40,6 +40,8 @@ final class ApiClientTest extends TestCase {
     self::assertSame('https://example.test' . $expected, $request->getUrl());
 
     $headers = $request->getHeaders();
+    self::assertSame('app-1', $headers[Signer::HEADER_APP_SELECTOR]);
+    self::assertArrayNotHasKey(Signer::HEADER_APP_ID, $headers);
     self::assertTrue(Signer::verifySignature(
       $headers[Signer::HEADER_SIGNATURE],
       'test-secret',
@@ -91,7 +93,7 @@ final class ApiClientTest extends TestCase {
   }
 
   public function testAuthenticationHeadersCannotBeOverriddenInAnyCase():void {
-    foreach (['X-App-Id', 'x-signature', 'X-PuBlIc-KeY'] as $name) {
+    foreach (['X-App-Id', 'x-app-selector', 'x-signature', 'X-PuBlIc-KeY'] as $name) {
       try {
         new ApiClient(
           $this->_credentials,
@@ -108,6 +110,26 @@ final class ApiClientTest extends TestCase {
     $client = new ApiClient($this->_credentials, 'https://example.test', transport: new FakeTransport());
     $this->expectException(\InvalidArgumentException::class);
     $client->get('/ping', headers: ['x-NoNcE' => 'replacement']);
+  }
+
+  public function testNumericLegacyCredentialKeepsXAppIdDuringMigration():void {
+    $headers = Signer::generateHeaders(
+      Credentials::forLegacyAppId('123', 'selector-1', 'test-secret'),
+      'GET', '/ping', '', 1700000000, '00112233445566778899aabbccddeeff'
+    );
+
+    self::assertSame('123', $headers[Signer::HEADER_APP_ID]);
+    self::assertArrayNotHasKey(Signer::HEADER_APP_SELECTOR, $headers);
+  }
+
+  public function testNumericPublicSelectorUsesXAppSelector():void {
+    $headers = Signer::generateHeaders(
+      Credentials::forSelector('1234', 'selector-1', 'test-secret'),
+      'GET', '/ping', '', 1700000000, '00112233445566778899aabbccddeeff'
+    );
+
+    self::assertSame('1234', $headers[Signer::HEADER_APP_SELECTOR]);
+    self::assertArrayNotHasKey(Signer::HEADER_APP_ID, $headers);
   }
 
   public function testHeaderNamesAreCaseInsensitiveAndInjectionIsRejected():void {
